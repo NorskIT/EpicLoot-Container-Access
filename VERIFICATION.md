@@ -1,4 +1,10 @@
-# Verification — 0.1.0 test build
+# Verification — 0.1.1 test build
+
+## 0.1.1 regression verification
+
+- Ten synthetic inventory validation checks passed inside Valheim, with and without RossItemDrawers. The old full-inventory snapshot changes when protected equipment durability changes; the new player baseline remains valid. Changes to material quantities, removal, metadata, available-item durability, moving to hotbar and equipping still invalidate it. Container top-row and equipped-item changes remain validated.
+- Normal inventory-validation cancellations now produce warnings identifying the source and changed fields, without an exception stack trace.
+- The reported gameplay trigger still needs confirmation in a disposable world: unlock/upgrade Convert Materials using only tin in a chest inside a configured 20 m radius; verify exact one-time payment and level change. Repeat with drawers and another client's container ownership. These gameplay/network checks were not performed by the menu smoke test.
 
 ## Completed
 

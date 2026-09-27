@@ -1,6 +1,6 @@
 {
   "name": "EpicLootContainerAccess",
-  "version_number": "0.1.0",
+  "version_number": "0.1.1",
   "website_url": "https://github.com/NorskIT/EpicLoot-Container-Access",
   "description": "Use nearby container materials and equipment at EpicLoot's enchanting table, with cached lookups and equipped/hotbar protection. Requires server and clients.",
   "dependencies": [

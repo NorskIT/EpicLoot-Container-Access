@@ -46,6 +46,6 @@ dotnet test tests/Core.Tests/Core.Tests.csproj -c Release
 powershell -ExecutionPolicy Bypass -File scripts/Build-Package.ps1
 ```
 
-The package is written to `artifacts/EpicLootContainerAccess-0.1.0.zip`. Build scripts never install into a profile or deploy to a server.
+The package is written to `artifacts/EpicLootContainerAccess-0.1.1.zip`. Build scripts never install into a profile or deploy to a server.
 
 [Source and issues](https://github.com/NorskIT/EpicLoot-Container-Access)

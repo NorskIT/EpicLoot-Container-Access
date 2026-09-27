@@ -20,7 +20,7 @@ internal sealed class Actions
     private Component? table;
     private float deadline;
     private Container[] containers = Array.Empty<Container>();
-    private readonly Dictionary<Inventory, string> baseline = new();
+    private readonly Dictionary<Inventory, InventoryBaseline> baseline = new();
     private readonly Dictionary<Inventory, InventoryUndo> undo = new();
     private readonly List<Action> products = new();
     private readonly List<Item> selected = new();
@@ -56,12 +56,13 @@ internal sealed class Actions
                 int feature = (int)AccessTools.Field(typeof(UpgradeTableUI), "_selectedFeature").GetValue(target);
                 expectedUpgradeLevel = ((EnchantingTable)table).GetFeatureLevel((EnchantingFeature)feature);
             }
-            if (selected.Any(x => !plugin.Storage.HasLive(x))) throw new InvalidOperationException("The selected item moved or is protected.");
+            if (selected.Any(x => !plugin.Storage.HasLive(x))) { Abort("The selected item moved or is protected."); return false; }
             containers = plugin.Storage.Nearby.ToArray();
             if (containers.Length > 255) throw new InvalidOperationException("Too many containers. Reduce the storage radius.");
             baseline.Clear();
-            baseline[Player.m_localPlayer.GetInventory()] = Network.Hash(Player.m_localPlayer.GetInventory());
-            foreach (var c in containers) baseline[c.GetInventory()] = Network.Hash(c.GetInventory());
+            var playerInventory = Player.m_localPlayer.GetInventory();
+            baseline[playerInventory] = new InventoryBaseline(playerInventory, true, "Player inventory");
+            foreach (var c in containers) baseline[c.GetInventory()] = new InventoryBaseline(c.GetInventory(), false, "Container " + Storage.Id(c));
             target.Lock();
             if (target.MainButton) target.MainButton.interactable = false;
             deadline = Time.unscaledTime + 5;
@@ -97,14 +98,24 @@ internal sealed class Actions
             foreach (var c in containers)
             {
                 if (!plugin.Storage.Eligible(c) || !plugin.Network.Fingerprints.TryGetValue(Storage.Id(c), out var expected) || Network.Hash(c.GetInventory()) != expected)
-                    throw new InvalidOperationException("Storage changed while preparing the action. Please try again.");
+                {
+                    plugin.Warn("Container " + Storage.Id(c) + ": access or authoritative fingerprint changed. " + baseline[c.GetInventory()].Difference(c.GetInventory()));
+                    Abort("Storage changed while preparing the action. Please try again.");
+                    return;
+                }
             }
             foreach (var pair in baseline)
-                if (Network.Hash(pair.Key) != pair.Value) throw new InvalidOperationException("Inventory changed. Please select the action again.");
-            if (selected.Any(x => !plugin.Storage.HasLive(x))) throw new InvalidOperationException("The selected item moved or is protected.");
+            {
+                var difference = pair.Value.Difference(pair.Key);
+                if (difference == null) continue;
+                plugin.Warn(difference);
+                Abort("Inventory changed. Please select the action again.");
+                return;
+            }
+            if (selected.Any(x => !plugin.Storage.HasLive(x))) { Abort("The selected item moved or is protected."); return; }
             var currentSelection = panel!.AvailableItems ? panel.AvailableItems.GetCurrentSelectionAmounts() : new Dictionary<IListElement, int>();
             if (currentSelection.Count != selection.Count || selection.Any(x => !currentSelection.TryGetValue(x.Key, out int quantity) || quantity != x.Value))
-                throw new InvalidOperationException("The selection changed while waiting for storage.");
+            { Abort("The selection changed while waiting for storage."); return; }
             undo.Clear();
             foreach (var inv in baseline.Keys) undo[inv] = new InventoryUndo(inv);
             products.Clear();
