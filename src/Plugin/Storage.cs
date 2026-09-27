@@ -137,10 +137,8 @@ internal sealed class Storage : IDisposable
     internal int Withdraw(string name, int amount, bool includePlayer)
     {
         if (!plugin.Actions.Executing) throw new InvalidOperationException("Storage withdrawals require a coordinated table action.");
-        Refresh(true);
-        var candidates = (includePlayer ? All() : Items()).Where(x => x.m_shared.m_name == name && !Protected(x)).ToList();
-        int[] take = Rules.Allocate(candidates.Select(x => x.m_stack).ToArray(), amount);
-        for (int i = 0; i < take.Length; i++) if (take[i] > 0) RemoveExact(candidates[i], take[i]);
+        if (plugin.Actions.Plan == null) throw new InvalidOperationException("No active withdrawal plan.");
+        plugin.Actions.Plan.Withdraw(this, name, amount);
         return amount;
     }
     internal int RemoveExact(Item item, int amount)
@@ -155,6 +153,7 @@ internal sealed class Storage : IDisposable
             if (!plugin.Network.OwnsReservation(Id(c)) || !View(c)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed.");
             inventory = c.GetInventory();
         }
+        plugin.Actions.Plan!.Consume(item, amount);
         int before = item.m_stack;
         inventory.RemoveItem(item, amount);
         int taken = before - (inventory.ContainsItem(item) ? item.m_stack : 0);

@@ -32,7 +32,7 @@ Diagnostics = false
 
 Range is measured in metres **from the table**, including height. The server controls it; accepted values are 1–100. Storage must also be loaded, accessible, and not in use. Graves are excluded.
 
-Unprotected carried materials are spent first. Equipment modified in a chest stays there; new items use EpicLoot's normal delivery behavior. A chest's top row is usable—the hotbar rule only applies to your inventory. Augment retains EpicLoot's normal payment when choices are generated; closing the choice dialog does not refund a roll.
+Unprotected carried materials are spent first. New products and equipment processed from storage are delivered to you. Items that do not fit are dropped beside you. Only containers contributing to an action are reserved; actions using only your inventory do not reserve nearby storage. A chest's top row is usable—the hotbar rule only applies to your inventory. Augment retains EpicLoot's normal payment when choices are generated; closing the choice dialog does not refund a roll.
 
 For Identify, put the required iron or other materials in a chest/drawer within range. If they are not shown, check distance, permissions, and whether another player is using the container. Enable diagnostics for cache timings in the BepInEx log.
 
@@ -46,6 +46,6 @@ dotnet test tests/Core.Tests/Core.Tests.csproj -c Release
 powershell -ExecutionPolicy Bypass -File scripts/Build-Package.ps1
 ```
 
-The package is written to `artifacts/EpicLootContainerAccess-0.1.1.zip`. Build scripts never install into a profile or deploy to a server.
+The package is written to `artifacts/EpicLootContainerAccess-0.1.2.zip`. Build scripts never install into a profile or deploy to a server.
 
 [Source and issues](https://github.com/NorskIT/EpicLoot-Container-Access)

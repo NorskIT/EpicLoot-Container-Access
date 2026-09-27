@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+- Plan exact inputs and material sources before each action; unrelated nearby containers no longer participate.
+- Player-only actions skip storage reservations. Only table upgrades require table ownership.
+- Rebind unchanged, validated container items after network inventory reloads.
+- Deliver processed equipment to the player, alongside new products; overflow follows EpicLoot's ground-drop behavior.
+- Add detailed preparation failure reasons, object identifiers and ownership diagnostics, and one bounded retry when ownership changes.
+- Update the coordination protocol; use 0.1.2 on both server and clients.
+
 ## 0.1.1
 
 - Prevent changes to equipped items and hotbar contents from incorrectly cancelling table actions, including upgrades paid from containers.

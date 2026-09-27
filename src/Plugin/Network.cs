@@ -10,7 +10,7 @@ namespace EpicLootContainerAccess;
 
 internal sealed class Network
 {
-    private const string Rpc = "NorskIT.ECA.v1";
+    private const string Rpc = "NorskIT.ECA.v2";
     private readonly Plugin plugin;
     private ZRoutedRpc? router;
     private LeaseBook leases = new();
@@ -29,7 +29,8 @@ internal sealed class Network
     private long ServerId => Server ? Local : ZNet.instance?.GetServerPeer()?.m_uid ?? 0;
     private sealed class Request
     {
-        internal string Token = "";
+        internal string Token = "", Action = "";
+        internal readonly HashSet<ZDOID> Retried = new();
         internal long Peer, Player;
         internal ZDOID Table;
         internal float Until;
@@ -44,7 +45,12 @@ internal sealed class Network
         return Convert.ToBase64String(sha.ComputeHash(Storage.Snapshot(inv)));
     }
     private static string Key(ZDOID id) => id.UserID + ":" + id.ID;
-    private static Container? Find(ZDOID id) => ZNetScene.instance ? ZNetScene.instance.FindInstance(id)?.GetComponent<Container>() : null;
+    private static Container? Find(ZDOID id)
+    {
+        var obj = ZNetScene.instance ? ZNetScene.instance.FindInstance(id) : null;
+        if (!obj) return null;
+        return obj.GetComponentsInChildren<Container>(true).FirstOrDefault(c => Storage.Id(c) == id);
+    }
     private void Send(long peer, string kind, Action<ZPackage>? body = null)
     {
         if (router == null || peer == 0) return;
@@ -90,7 +96,7 @@ internal sealed class Network
     internal bool ReservedByOther(ZDOID id) => reservations.TryGetValue(id, out var r) && r.Until >= Time.unscaledTime && r.Peer != Local;
     internal bool AnyReservation(ZDOID id) => reservations.TryGetValue(id, out var r) && r.Until >= Time.unscaledTime;
     internal bool OwnsReservation(ZDOID id) => Granted && Time.unscaledTime < leaseValidUntil && Fingerprints.ContainsKey(id) && Token != "";
-    internal void Begin(IEnumerable<Container> containers)
+    internal void Begin(IEnumerable<Container> containers, bool upgrade, string action)
     {
         Release();
         Token = Guid.NewGuid().ToString("N"); Failure = null; Granted = false; Fingerprints.Clear();
@@ -98,7 +104,7 @@ internal sealed class Network
         var view = table ? table.GetComponent<ZNetView>() : null;
         if (!ConfigReady || !view || !view.IsValid()) { Failure = "Waiting for server configuration."; return; }
         var ids = containers.Select(Storage.Id).Distinct().ToArray();
-        Send(ServerId, "acquire", p => { p.Write(Token); p.Write(view.GetZDO().m_uid); p.Write(ids.Length); foreach (var id in ids) p.Write(id); });
+        Send(ServerId, "acquire", p => { p.Write(Token); p.Write(view.GetZDO().m_uid); p.Write(upgrade); p.Write(action); p.Write(ids.Length); foreach (var id in ids) p.Write(id); });
     }
     internal void Release()
     {
@@ -168,7 +174,7 @@ internal sealed class Network
     private void Acquire(long sender, ZPackage p)
     {
         float now = Time.unscaledTime;
-        string token = p.ReadString(); ZDOID tableId = p.ReadZDOID(); int count = p.ReadInt();
+        string token = p.ReadString(); ZDOID tableId = p.ReadZDOID(); bool upgrade = p.ReadBool(); string action = p.ReadString(); int count = p.ReadInt();
         if (token.Length != 32 || count < 0 || count > 256) return;
         if (rate.TryGetValue(sender, out var last) && now - last < .2f) { Deny(sender, token, "Please wait before trying again."); return; }
         rate[sender] = now;
@@ -178,7 +184,7 @@ internal sealed class Network
         var tablePrefab = table != null && ZNetScene.instance ? ZNetScene.instance.GetPrefab(table.GetPrefab()) : null;
         if (player == null || table == null || !tablePrefab || !tablePrefab.GetComponent<EpicLoot_UnityLib.EnchantingTable>() || (player.GetPosition() - table.GetPosition()).sqrMagnitude > 100)
         { Deny(sender, token, "The enchanting table is no longer in reach."); return; }
-        var request = new Request { Token = token, Peer = sender, Player = player.GetLong(ZDOVars.s_playerID), Table = tableId, Until = now + 5 };
+        var request = new Request { Token = token, Action = action, Peer = sender, Player = player.GetLong(ZDOVars.s_playerID), Table = tableId, Until = now + 5 };
         if (request.Player == 0) { Deny(sender, token, "Player identity is unavailable."); return; }
         var ids = new List<ZDOID>();
         for (int i = 0; i < count; i++)
@@ -189,8 +195,12 @@ internal sealed class Network
             ids.Add(id);
             request.Waiting[id] = zdo.GetOwner() == 0 ? Local : zdo.GetOwner();
         }
-        ids.Add(tableId);
-        request.Waiting[tableId] = table.GetOwner() == 0 ? Local : table.GetOwner();
+        if (upgrade)
+        {
+            ids.Add(tableId);
+            request.Waiting[tableId] = table.GetOwner() == 0 ? Local : table.GetOwner();
+        }
+        if (ids.Count == 0) { Deny(sender, token, "Empty storage request."); return; }
         request.Ids = ids.Distinct().ToArray();
         if (requests.ContainsKey(token) || requests.Values.Any(x => x.Peer == sender) || !leases.Acquire(sender, token, request.Ids.Select(Key), now))
         { Deny(sender, token, "Storage is busy. Please try again."); return; }
@@ -203,45 +213,62 @@ internal sealed class Network
     {
         string token = p.ReadString(); long requester = p.ReadLong(); long playerId = p.ReadLong(); var id = p.ReadZDOID();
         if (!reservations.TryGetValue(id, out var reservation) || reservation.Token != token || reservation.Peer != requester || reservation.Until < Time.unscaledTime) return;
-        var c = Find(id);
-        bool ok = false; string hash = "";
         var obj = ZNetScene.instance ? ZNetScene.instance.FindInstance(id) : null;
+        var c = Find(id);
         var enchanting = obj ? obj.GetComponent<EpicLoot_UnityLib.EnchantingTable>() : null;
-        if (enchanting)
+        var view = c ? Storage.View(c) : enchanting ? enchanting.GetComponent<ZNetView>() : null;
+        string reason = "", hash = "";
+        long actualOwner = view && view.IsValid() ? view.GetZDO().GetOwner() : 0;
+        try
         {
-            var view = enchanting.GetComponent<ZNetView>();
-            if (view && view.IsValid() && (view.IsOwner() || (Server && view.GetZDO().GetOwner() == 0)))
+            if (!obj) reason = "object_not_loaded";
+            else if (!c && !enchanting) reason = "component_missing";
+            else if (!view || !view.IsValid()) reason = "network_view_missing";
+            else if (!view.IsOwner() && !(Server && actualOwner == 0)) reason = "owner_changed";
+            else if (c && (c.IsInUse() || (c.m_wagon && c.m_wagon.InUse()))) reason = "in_use";
+            else if (c && (c.GetComponent<TombStone>() || !(bool)AccessTools.Method(typeof(Container), "CheckAccess").Invoke(c, new object[] { playerId }))) reason = "access_denied";
+            else
             {
-                view.GetZDO().SetOwner(requester);
-                ZDOMan.instance.ForceSendZDO(requester, id);
-                ok = true; hash = "table";
-            }
-        }
-        if (c && !c.GetComponent<TombStone>() && !c.IsInUse() && !(c.m_wagon && c.m_wagon.InUse()))
-        {
-            var view = Storage.View(c);
-            if (view && view.IsValid() && (view.IsOwner() || (Server && view.GetZDO().GetOwner() == 0)) &&
-                (bool)AccessTools.Method(typeof(Container), "CheckAccess").Invoke(c, new object[] { playerId }))
-            {
-                Storage.Load(c);
-                var inv = c.GetInventory();
-                if (inv != null)
+                if (c)
                 {
-                    hash = Hash(inv);
-                    Storage.Save(c);
-                    view.GetZDO().SetOwner(requester);
+                    Storage.Load(c);
+                    var inv = c.GetInventory();
+                    if (inv == null) reason = "inventory_missing";
+                    else { hash = Hash(inv); Storage.Save(c); }
+                }
+                else hash = "table";
+                if (reason == "")
+                {
+                    view!.GetZDO().SetOwner(requester);
                     ZDOMan.instance.ForceSendZDO(requester, id);
-                    ok = true;
                 }
             }
         }
-        Send(ServerId, "prepared", q => { q.Write(token); q.Write(id); q.Write(ok); q.Write(hash); });
+        catch (Exception e) { reason = "prepare_exception"; plugin.Error(e); }
+        if (reason != "") plugin.Warn($"Prepare {token}: {id}, prefab={(obj ? obj.name : "unloaded")}, expected owner={Local}, actual owner={actualOwner}, reason={reason}");
+        Send(ServerId, "prepared", q => { q.Write(token); q.Write(id); q.Write(reason == ""); q.Write(hash); q.Write(reason); q.Write(actualOwner); });
     }
     private void Prepared(long sender, ZPackage p)
     {
         string token = p.ReadString(); var id = p.ReadZDOID(); bool ok = p.ReadBool(); string hash = p.ReadString();
+        string reason = p.ReadString(); long reportedOwner = p.ReadLong();
         if (!requests.TryGetValue(token, out var request) || !request.Waiting.TryGetValue(id, out long expected) || expected != sender) return;
-        if (!ok || (hash.Length != 44 && !(id == request.Table && hash == "table"))) { End(request, "A container is busy or unavailable."); return; }
+        var zdo = ZDOMan.instance.GetZDO(id);
+        long currentOwner = zdo?.GetOwner() ?? 0;
+        if (!ok && reason == "owner_changed" && currentOwner != 0 && currentOwner != sender && currentOwner == reportedOwner &&
+            Time.unscaledTime < request.Until && request.Retried.Add(id))
+        {
+            request.Waiting[id] = currentOwner;
+            Send(currentOwner, "prepare", q => { q.Write(token); q.Write(request.Peer); q.Write(request.Player); q.Write(id); });
+            return;
+        }
+        if (!ok || (hash.Length != 44 && !(id == request.Table && hash == "table")))
+        {
+            if (ok) reason = "invalid_reply";
+            string kind = id == request.Table ? "Table" : "Container";
+            plugin.Warn($"{request.Action} {token}: {kind} {id}, prefab={zdo?.GetPrefab()}, expected owner={expected}, reported owner={reportedOwner}, server owner={currentOwner}, reason={reason}");
+            End(request, $"{kind} {id}: {reason}. Nothing was consumed."); return;
+        }
         request.Waiting.Remove(id); request.Hashes[id] = hash;
         if (request.Waiting.Count == 0) Grant(request);
     }

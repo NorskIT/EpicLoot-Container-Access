@@ -24,6 +24,7 @@ internal sealed class Actions
     private readonly Dictionary<Inventory, InventoryUndo> undo = new();
     private readonly List<Action> products = new();
     private readonly List<Item> selected = new();
+    private readonly Dictionary<Item, (Inventory Inventory, int Index)> bindings = new();
     private Dictionary<IListElement, int> selection = new();
     private AugmentChoiceDialog? dialog;
     private bool finishing;
@@ -31,6 +32,8 @@ internal sealed class Actions
     private EnchantingFeature? upgradedFeature;
     private int previousLevel;
     private int expectedUpgradeLevel;
+    internal ActionPlan? Plan;
+    private bool NeedsNetwork => containers.Length > 0 || panel is UpgradeTableUI;
     internal bool Executing { get; private set; }
     internal bool Busy => panel;
     internal Actions(Plugin plugin) { this.plugin = plugin; }
@@ -57,7 +60,22 @@ internal sealed class Actions
                 expectedUpgradeLevel = ((EnchantingTable)table).GetFeatureLevel((EnchantingFeature)feature);
             }
             if (selected.Any(x => !plugin.Storage.HasLive(x))) { Abort("The selected item moved or is protected."); return false; }
-            containers = plugin.Storage.Nearby.ToArray();
+            var inputs = selection.Where(x => x.Value > 0 && x.Key is InventoryItemListElement)
+                .Select(x => (Item: x.Key.GetItem(), Amount: x.Value)).ToList();
+            if (target is RuneUI rune && ActionPlan.Field(rune, "_runeAction").ToString() == "Etch")
+            {
+                var chosenRune = rune.AvailableRunes.GetSingleSelectedItem<InventoryItemListElement>()?.Item1.GetItem();
+                if (chosenRune == null || !plugin.Storage.HasLive(chosenRune)) throw new InvalidOperationException("Select an available rune.");
+                inputs.Add((chosenRune, 1)); selected.Add(chosenRune);
+            }
+            Plan = new ActionPlan(plugin, target, inputs);
+            containers = Plan.Containers.ToArray();
+            bindings.Clear();
+            foreach (var item in Plan.Remaining.Keys)
+            {
+                var inventory = plugin.Storage.Sources.TryGetValue(item, out var source) ? source.GetInventory() : Player.m_localPlayer.GetInventory();
+                bindings[item] = (inventory, inventory.GetAllItems().IndexOf(item));
+            }
             if (containers.Length > 255) throw new InvalidOperationException("Too many containers. Reduce the storage radius.");
             baseline.Clear();
             var playerInventory = Player.m_localPlayer.GetInventory();
@@ -66,7 +84,7 @@ internal sealed class Actions
             target.Lock();
             if (target.MainButton) target.MainButton.interactable = false;
             deadline = Time.unscaledTime + 5;
-            plugin.Network.Begin(containers);
+            if (NeedsNetwork) plugin.Network.Begin(containers, target is UpgradeTableUI, target.GetType().Name);
         }
         catch (Exception e) { plugin.Error(e); Abort(e.Message); }
         return false;
@@ -90,13 +108,22 @@ internal sealed class Actions
             return;
         }
         if (Time.unscaledTime > deadline) { Abort("Storage request timed out. Nothing was consumed."); return; }
-        if (!plugin.Network.Granted) return;
-        if (!table.GetComponent<ZNetView>().IsOwner()) return;
+        if (NeedsNetwork && !plugin.Network.Granted) return;
+        if (panel is UpgradeTableUI && !table.GetComponent<ZNetView>().IsOwner()) return;
         if (containers.Any(c => !c || !Storage.View(c) || !Storage.View(c)!.IsOwner())) return;
         try
         {
+            if ((Player.m_localPlayer.transform.position - table.transform.position).sqrMagnitude > 100)
+            { Abort("The enchanting table is no longer in reach."); return; }
+            if (!(panel is UpgradeTableUI) && !((EnchantingTable)table).IsFeatureUnlocked(ActionPlan.Feature(panel!)))
+            { Abort("This table feature is locked."); return; }
+            if (panel is RuneUI rune && ActionPlan.Field(rune, "_runeAction").ToString() == "Etch" &&
+                rune.AvailableRunes.GetSingleSelectedItem<InventoryItemListElement>()?.Item1.GetItem() != selected.Last())
+            { Abort("The selected rune changed."); return; }
             foreach (var c in containers)
             {
+                // Ownership and inventory replication arrive independently. Load the received ZDO before validating it.
+                Storage.Load(c);
                 if (!plugin.Storage.Eligible(c) || !plugin.Network.Fingerprints.TryGetValue(Storage.Id(c), out var expected) || Network.Hash(c.GetInventory()) != expected)
                 {
                     plugin.Warn("Container " + Storage.Id(c) + ": access or authoritative fingerprint changed. " + baseline[c.GetInventory()].Difference(c.GetInventory()));
@@ -112,10 +139,31 @@ internal sealed class Actions
                 Abort("Inventory changed. Please select the action again.");
                 return;
             }
+            // A network reload can replace ItemData objects without changing any inventory data.
+            // Rebind only after the entire baseline has matched, never by name alone.
+            Item Resolve(Item item)
+            {
+                if (!bindings.TryGetValue(item, out var binding) || binding.Inventory.ContainsItem(item)) return item;
+                if (binding.Inventory == Player.m_localPlayer.GetInventory()) throw new InvalidOperationException("A selected player item was replaced.");
+                return binding.Inventory.GetAllItems()[binding.Index];
+            }
+            Plan!.Rebind(Resolve);
+            for (int i = 0; i < selected.Count; i++) selected[i] = Resolve(selected[i]);
+            foreach (var entry in selection.Keys.OfType<InventoryItemListElement>()) entry.Item = Resolve(entry.GetItem());
+            if (panel is RuneUI selectedRunePanel)
+            {
+                foreach (var entry in selectedRunePanel.AvailableRunes.GetCurrentSelectionAmounts().Keys.OfType<InventoryItemListElement>()) entry.Item = Resolve(entry.GetItem());
+                var selectedItemField = AccessTools.Field(typeof(RuneUI), "_selectedItem");
+                if (selectedItemField.GetValue(panel) is Item oldItem) selectedItemField.SetValue(panel, Resolve(oldItem));
+            }
+            plugin.Storage.Invalidate();
             if (selected.Any(x => !plugin.Storage.HasLive(x))) { Abort("The selected item moved or is protected."); return; }
             var currentSelection = panel!.AvailableItems ? panel.AvailableItems.GetCurrentSelectionAmounts() : new Dictionary<IListElement, int>();
             if (currentSelection.Count != selection.Count || selection.Any(x => !currentSelection.TryGetValue(x.Key, out int quantity) || quantity != x.Value))
             { Abort("The selection changed while waiting for storage."); return; }
+            var currentCosts = ActionPlan.CalculateCosts(panel!);
+            if (ActionPlan.Settings(panel!) != Plan!.Options || currentCosts.Count != Plan.Costs.Count || currentCosts.Any(x => !Plan.Costs.TryGetValue(x.Key, out int n) || n != x.Value))
+            { Abort("The action settings or cost changed. Please select it again."); return; }
             undo.Clear();
             foreach (var inv in baseline.Keys) undo[inv] = new InventoryUndo(inv);
             products.Clear();
@@ -124,6 +172,8 @@ internal sealed class Actions
             {
                 if (panel is UpgradeTableUI upgrade) Upgrade(upgrade);
                 else method!.Invoke(panel, null);
+                if (Plan!.Payments.Any(x => x.Amount != 0)) throw new InvalidOperationException("The action did not complete its planned payment.");
+                if (!dialog) MoveProcessedItems();
             }
             finally { Executing = false; }
             Persist();
@@ -171,7 +221,7 @@ internal sealed class Actions
         {
             if (completed) return;
             completed = true;
-            if (!Busy || !plugin.Network.Granted || !plugin.Storage.HasLive(target) || Storage.Table != table ||
+            if (!Busy || (NeedsNetwork && !plugin.Network.Granted) || !plugin.Storage.HasLive(target) || Storage.Table != table ||
                 containers.Any(c => !c || !plugin.Storage.Eligible(c) || !Storage.View(c)!.IsOwner()))
             { Abort("The selected item is no longer available. Augment cancelled."); return; }
             try
@@ -180,12 +230,30 @@ internal sealed class Actions
                 foreach (var inv in baseline.Keys) undo[inv] = new InventoryUndo(inv);
                 Executing = true;
                 original(target, index, effect);
+                MoveProcessedItems(true);
                 Persist();
                 undo.Clear();
+                Executing = false;
+                foreach (var give in products) give();
+                products.Clear();
+                Finish();
             }
             catch (Exception e) { plugin.Error(e); Rollback(); Abort("Augment failed; the action was cancelled."); }
             finally { Executing = false; }
         };
+    }
+    private void MoveProcessedItems(bool confirmed = false)
+    {
+        if (!(panel is EnchantUI || panel is AugmentUI || panel is DisenchantUI || panel is RuneUI)) return;
+        foreach (var item in selected.Take(1))
+        {
+            var source = containers.FirstOrDefault(c => c.GetInventory().ContainsItem(item));
+            if (!source) continue;
+            if (!confirmed && (!undo.TryGetValue(source.GetInventory(), out var saved) || !saved.ItemChanged(item))) continue;
+            if (!plugin.Network.OwnsReservation(Storage.Id(source)) || !Storage.View(source)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed before delivery.");
+            Queue(item);
+            source.GetInventory().RemoveItem(item);
+        }
     }
     private void Persist()
     {
@@ -216,7 +284,7 @@ internal sealed class Actions
     {
         var old = panel;
         panel = null; table = null; method = null; dialog = null; finishing = false;
-        containers = Array.Empty<Container>(); baseline.Clear(); undo.Clear(); selected.Clear(); selection.Clear(); products.Clear(); upgradedFeature = null;
+        containers = Array.Empty<Container>(); Plan = null; bindings.Clear(); baseline.Clear(); undo.Clear(); selected.Clear(); selection.Clear(); products.Clear(); upgradedFeature = null;
         plugin.Network.Release(); plugin.Storage.Invalidate();
         // EpicLoot retains its own success/choice dialog locking state.
         if (old && !old.CanCancel()) old.Unlock();

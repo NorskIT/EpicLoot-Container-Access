@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net481</TargetFramework><AssemblyName>EpicLootContainerAccess</AssemblyName><Version>0.1.1</Version><Authors>NorskIT</Authors></PropertyGroup>
+  <PropertyGroup><TargetFramework>net481</TargetFramework><AssemblyName>EpicLootContainerAccess</AssemblyName><Version>0.1.2</Version><Authors>NorskIT</Authors></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Core/Core.csproj" />
     <PackageReference Include="JotunnLib" Version="2.30.0" />

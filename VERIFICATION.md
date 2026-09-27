@@ -1,5 +1,13 @@
 # Verification — 0.1.1 test build
 
+## 0.1.2 validation and outstanding acceptance
+
+- The broad reservation defect is confirmed by code inspection: 0.1.1 included every nearby eligible container and the table for every action. The new planner isolates player-only, selected-item and material sources.
+- Synthetic in-game checks cover source isolation, split payments, selected inputs versus material budgets, oversized stacks, unplanned/duplicate withdrawals, reference rebinding after reload, exact payment and processed-item detection. Cost API entry points are checked against the installed EpicLoot assembly.
+- The exact object/condition behind the user's earlier generic preparation rejection is still unconfirmed. Protocol v2 reports the object, action, owner and reason instead of masking that information.
+- Full UI action execution in a world, dedicated-server ownership transfer, two-client contention, drawer persistence, reconnect and large-base performance are still pending. No dedicated-server executable is installed in the local Steam game directory; the existing smoke runner starts only an isolated menu. The synthetic checks must not be interpreted as completion of that gameplay matrix.
+- Gameplay acceptance: run Identify, Sacrifice, Convert, Enchant, Augment, Disenchant, both Rune modes and Upgrade with player-only, chest-only and split sources. Repeat material cases with drawers. Include an unrelated unavailable chest; full inventory; cancellation; a remote owner; an ownership change; and two contenders for the last item. Verify one payment, one delivery to the player, and persisted results after reconnect.
+
 ## 0.1.1 regression verification
 
 - Ten synthetic inventory validation checks passed inside Valheim, with and without RossItemDrawers. The old full-inventory snapshot changes when protected equipment durability changes; the new player baseline remains valid. Changes to material quantities, removal, metadata, available-item durability, moving to hotbar and equipping still invalidate it. Container top-row and equipped-item changes remain validated.
@@ -37,7 +45,7 @@ These are **not yet verified** by the startup test. Use a disposable world/test 
 ## Boundaries
 
 - The first build supports exactly EpicLoot's plugin version 0.14.13. Its assembly version is still 0.13.0.0; the runtime check intentionally uses BepInEx metadata instead.
-- A table action conservatively reserves the table and all eligible containers in its current snapshot, up to 255 containers. This prevents competing ECA actions changing inputs during validation but can cause contention at large shared storage areas.
+- A table action reserves only selected-item and payment sources, up to 255 containers. Player-only actions skip storage coordination. Only upgrades reserve and transfer the table. Protocol v2 requires matching 0.1.2 clients and server.
 - Ownership transfer and authoritative owner inventory fingerprints must agree before execution. A changed or stale snapshot cancels the action and asks the player to retry.
 - Augment keeps EpicLoot's normal payment/augmentation marking when choices are generated. The reservation remains held while choosing. Closing the dialog does not refund a roll; a subsequently protected item cannot receive the chosen change.
 - Table upgrades execute while this client owns the reserved table, with the expected previous level checked, rather than paying in EpicLoot's later uncoordinated response callback.

@@ -22,6 +22,14 @@ internal sealed class InventoryUndo
         this.inventory = inventory;
         items = inventory.GetAllItems().Select(item => (item, item.Clone(), (string?)EpicLoot.API.GetMagicItemJson(item))).ToList();
     }
+    internal bool ItemChanged(Item item)
+    {
+        var saved = items.FirstOrDefault(x => ReferenceEquals(x.Live, item));
+        if (saved.Live == null) return false;
+        var before = new ZPackage(); saved.Copy.Save(before);
+        var after = new ZPackage(); item.Save(after);
+        return !before.GetArray().SequenceEqual(after.GetArray()) || saved.Magic != EpicLoot.API.GetMagicItemJson(item);
+    }
     internal void Restore()
     {
         var list = inventory.GetAllItems(); list.Clear();

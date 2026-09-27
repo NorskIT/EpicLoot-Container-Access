@@ -15,7 +15,7 @@ namespace EpicLootContainerAccess;
 [NetworkCompatibility(CompatibilityLevel.EveryoneMustHaveMod, VersionStrictness.Patch)]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string Id = "norskit.epiclootcontaineraccess", Version = "0.1.1";
+    public const string Id = "norskit.epiclootcontaineraccess", Version = "0.1.2";
     internal static Plugin Instance = null!;
     internal ConfigEntry<float> Radius = null!;
     internal ConfigEntry<bool> Diagnostics = null!;
@@ -57,7 +57,7 @@ public sealed class Plugin : BaseUnityPlugin
             EpicLoot.API.RegisterSacrificeFilter(Id, item => !Storage.Protected(item));
             Storage.Bootstrap();
             Ready = true;
-            Logger.LogInfo("EpicLoot Container Access 0.1.1 ready. Equipped items and hotbar slots 1–8 are protected.");
+            Logger.LogInfo("EpicLoot Container Access 0.1.2 ready. Equipped items and hotbar slots 1–8 are protected.");
         }
         catch (Exception e)
         {
