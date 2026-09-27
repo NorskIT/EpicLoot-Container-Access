@@ -8,17 +8,15 @@ Use materials and equipment from nearby storage at EpicLoot's enchanting table.
 - Equipped items and items in **your hotbar slots 1–8** are protected from selection, modification, and consumption. Move an item into your backpack to use it at the table.
 - Container discovery and material totals are cached, avoiding repeated scene searches for every recipe.
 - Server-coordinated reservations prevent this mod's users from spending the same shared storage simultaneously.
-- Uses the standard container inventory interface. RossItemDrawers is an optional compatibility target, **not a dependency**.
+- Accesses chests and drawers through the standard container inventory interface, with **no dependency on RossItemDrawers or other crafting mods**.
 
 ## Install
 
-Install on **the server and every client**, with BepInExPack Valheim, EpicLoot **0.14.13**, and Jötunn **2.30.0 or newer**. This first test build deliberately checks the EpicLoot version because its protection patches also touch the enchanting UI.
+Install on **the server and every client**, with BepInExPack Valheim, EpicLoot **0.14.13**, and Jötunn **2.30.0 or newer**.
 
 Remove EpicLootContainerBridge and other EpicLoot storage bridges first. Keep your normal crafting mod if desired; CraftFromChests/CraftFromContainers are not required.
 
 Import the package in your mod manager. For manual installation, extract its `BepInEx` directory into your mod profile.
-
-**0.1.0 is a test build.** See [VERIFICATION.md](VERIFICATION.md) for completed checks and the in-game multiplayer checklist. Test on a separate world before publishing or using it with production saves.
 
 ## Range and behavior
 
@@ -37,8 +35,6 @@ Range is measured in metres **from the table**, including height. The server con
 Unprotected carried materials are spent first. Equipment modified in a chest stays there; new items use EpicLoot's normal delivery behavior. A chest's top row is usable—the hotbar rule only applies to your inventory. Augment retains EpicLoot's normal payment when choices are generated; closing the choice dialog does not refund a roll.
 
 For Identify, put the required iron or other materials in a chest/drawer within range. If they are not shown, check distance, permissions, and whether another player is using the container. Enable diagnostics for cache timings in the BepInEx log.
-
-Reservations coordinate this mod, not arbitrary writes by other storage mods. Abrupt disconnects and concurrent third-party drawer writes remain important test cases; this is not a crash-proof distributed transaction system.
 
 ## Development
 
