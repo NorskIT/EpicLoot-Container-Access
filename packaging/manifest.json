@@ -1,0 +1,11 @@
+{
+  "name": "EpicLootContainerAccess",
+  "version_number": "0.1.0",
+  "website_url": "https://github.com/NorskIT/EpicLoot-Container-Access",
+  "description": "Use nearby container materials and equipment at EpicLoot's enchanting table, with cached lookups and equipped/hotbar protection. Requires server and clients.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2350",
+    "RandyKnapp-EpicLoot-0.14.13",
+    "ValheimModding-Jotunn-2.30.0"
+  ]
+}

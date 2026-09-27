@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net481</TargetFramework><AssemblyName>EpicLootContainerAccess</AssemblyName><Version>0.1.0</Version><Authors>NorskIT</Authors></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Core/Core.csproj" />
+    <PackageReference Include="JotunnLib" Version="2.30.0" />
+    <Reference Remove="UnityEngine.ProfilerModule;assembly_valheim_publicized;assembly_googleanalytics_publicized;assembly_guiutils_publicized;assembly_lux_publicized;assembly_postprocessing_publicized;assembly_simplemeshcombine_publicized;assembly_sunshafts_publicized;assembly_utils_publicized;SoftReferenceableAssets_publicized;gui_framework_publicized" />
+    <Reference Include="assembly_valheim" HintPath="$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_valheim.dll" Private="false" />
+    <Reference Include="assembly_utils" HintPath="$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_utils.dll" Private="false" />
+    <Reference Include="assembly_guiutils" HintPath="$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_guiutils.dll" Private="false" />
+    <Reference Include="EpicLoot" HintPath="$(EPICLOOT_DLL)" Private="false" />
+  </ItemGroup>
+  <Target Name="CheckGameReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(EPICLOOT_DLL)')" Text="Set EPICLOOT_DLL in Environment.props." />
+    <Error Condition="!Exists('$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_valheim.dll')" Text="Set VALHEIM_INSTALL in Environment.props." />
+  </Target>
+</Project>

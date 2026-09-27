@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net481</TargetFramework><AssemblyName>EpicLootContainerAccess.RuntimeSmoke</AssemblyName></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Plugin/Plugin.csproj" />
+    <PackageReference Include="JotunnLib" Version="2.30.0" />
+    <Reference Remove="UnityEngine.ProfilerModule;assembly_valheim_publicized;assembly_googleanalytics_publicized;assembly_guiutils_publicized;assembly_lux_publicized;assembly_postprocessing_publicized;assembly_simplemeshcombine_publicized;assembly_sunshafts_publicized;assembly_utils_publicized;SoftReferenceableAssets_publicized;gui_framework_publicized" />
+    <Reference Include="assembly_valheim" HintPath="$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_valheim.dll" Private="false" />
+    <Reference Include="assembly_utils" HintPath="$(VALHEIM_INSTALL)/valheim_Data/Managed/assembly_utils.dll" Private="false" />
+    <Reference Include="EpicLoot" HintPath="$(EPICLOOT_DLL)" Private="false" />
+  </ItemGroup>
+</Project>

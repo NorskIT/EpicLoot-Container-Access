@@ -1,0 +1,5 @@
+<Project><PropertyGroup>
+  <VALHEIM_INSTALL>C:\Program Files (x86)\Steam\steamapps\common\Valheim</VALHEIM_INSTALL>
+  <BEPINEX_PATH>C:\path\to\test-profile\BepInEx</BEPINEX_PATH>
+  <EPICLOOT_DLL>C:\path\to\test-profile\BepInEx\plugins\RandyKnapp-EpicLoot\EpicLoot.dll</EPICLOOT_DLL>
+</PropertyGroup></Project>
