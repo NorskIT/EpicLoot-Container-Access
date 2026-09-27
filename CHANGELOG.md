@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3
+
+- Remove storage reservations, lease renewal and chest-opening locks.
+- Recheck only required items and quantities immediately before execution; unrelated inventory changes no longer cancel actions.
+- Keep ordinary storage ownership handoff only where required to save changes.
+- Withdraw a stored augment item when its paid roll starts, then deliver it when the choice is completed or closed; the chest is not held while choosing.
+- Use matching 0.1.3 clients and server (protocol v3).
+
 ## 0.1.2
 
 - Plan exact inputs and material sources before each action; unrelated nearby containers no longer participate.

@@ -8,7 +8,6 @@ namespace EpicLootContainerAccess.Tests;
 [TestClass]
 public class BehaviorTests
 {
-    private static string Token(char c) => new(c, 32);
     [TestMethod]
     public void AllEightHotbarSlotsAreProtectedButChestTopRowIsUsable()
     {
@@ -74,63 +73,5 @@ public class BehaviorTests
             Assert.AreEqual(request, take.Sum());
             for (int i = 0; i < take.Length; i++) Assert.IsTrue(take[i] >= 0 && take[i] <= stocks[i]);
         }
-    }
-    [TestMethod]
-    public void TwoPlayersCannotReserveSameStorage()
-    {
-        var book = new LeaseBook();
-        Assert.IsTrue(book.Acquire(1, Token('a'), new[] { "chest" }, 0));
-        Assert.IsFalse(book.Acquire(2, Token('b'), new[] { "chest" }, 1));
-        Assert.IsFalse(book.Holds(2, Token('a'), "chest", 1));
-    }
-    [TestMethod]
-    public void FailedMultiContainerRequestDoesNotLockUncontestedContainers()
-    {
-        var book = new LeaseBook();
-        book.Acquire(1, Token('a'), new[] { "iron" }, 0);
-        Assert.IsFalse(book.Acquire(2, Token('b'), new[] { "coins", "iron" }, 1));
-        Assert.IsFalse(book.Busy("coins", 1));
-        Assert.IsTrue(book.Acquire(3, Token('c'), new[] { "coins" }, 1));
-    }
-    [TestMethod]
-    public void UnauthorizedReleaseOrRenewDoesNotChangeLease()
-    {
-        var book = new LeaseBook(); book.Acquire(1, Token('a'), new[] { "box" }, 0);
-        book.Release(2, Token('a'));
-        Assert.IsFalse(book.Renew(2, Token('a'), 1));
-        Assert.IsTrue(book.Holds(1, Token('a'), "box", 1));
-    }
-    [TestMethod]
-    public void DuplicateRequestCannotSpendTwiceAfterRelease()
-    {
-        var book = new LeaseBook(); book.Acquire(1, Token('a'), new[] { "box" }, 0);
-        book.Release(1, Token('a'));
-        Assert.IsFalse(book.Acquire(1, Token('a'), new[] { "box" }, 2));
-        Assert.IsTrue(book.Acquire(1, Token('b'), new[] { "box" }, 2));
-    }
-    [TestMethod]
-    public void TimeoutAndDisconnectReleaseAllReservations()
-    {
-        var book = new LeaseBook(); book.Acquire(1, Token('a'), new[] { "a", "b" }, 0);
-        Assert.IsFalse(book.Busy("a", 10));
-        Assert.IsTrue(book.Acquire(2, Token('b'), new[] { "a", "b" }, 10));
-        book.Disconnect(2);
-        Assert.IsFalse(book.Busy("a", 11)); Assert.IsFalse(book.Busy("b", 11));
-    }
-    [TestMethod]
-    public void AugmentDialogCanRenewButExpiredLeaseCannotRevive()
-    {
-        var book = new LeaseBook(); book.Acquire(1, Token('a'), new[] { "sword" }, 0);
-        Assert.IsTrue(book.Renew(1, Token('a'), 9));
-        Assert.IsTrue(book.Holds(1, Token('a'), "sword", 18));
-        Assert.IsFalse(book.Renew(1, Token('a'), 19));
-    }
-    [TestMethod]
-    public void DuplicateSourceIdsAreOneReservation()
-    {
-        var book = new LeaseBook();
-        Assert.IsTrue(book.Acquire(1, Token('a'), new[] { "drawer", "drawer" }, 0));
-        book.Release(1, Token('a'));
-        Assert.IsTrue(book.Acquire(2, Token('b'), new[] { "drawer" }, 1));
     }
 }

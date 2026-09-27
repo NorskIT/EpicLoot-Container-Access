@@ -20,20 +20,22 @@ internal sealed class Actions
     private Component? table;
     private float deadline;
     private Container[] containers = Array.Empty<Container>();
-    private readonly Dictionary<Inventory, InventoryBaseline> baseline = new();
+    private readonly HashSet<Inventory> inventories = new();
     private readonly Dictionary<Inventory, InventoryUndo> undo = new();
     private readonly List<Action> products = new();
     private readonly List<Item> selected = new();
-    private readonly Dictionary<Item, (Inventory Inventory, int Index)> bindings = new();
+    private readonly Dictionary<Item, ItemCheck> bindings = new();
     private Dictionary<IListElement, int> selection = new();
     private AugmentChoiceDialog? dialog;
+    private readonly Inventory augmentItem = new Inventory("ECA augment", null, 1, 1);
+    private bool augmentPaid;
     private bool finishing;
     private int settleFrames;
     private EnchantingFeature? upgradedFeature;
     private int previousLevel;
     private int expectedUpgradeLevel;
     internal ActionPlan? Plan;
-    private bool NeedsNetwork => containers.Length > 0 || panel is UpgradeTableUI;
+    private bool NeedsNetwork;
     internal bool Executing { get; private set; }
     internal bool Busy => panel;
     internal Actions(Plugin plugin) { this.plugin = plugin; }
@@ -74,16 +76,17 @@ internal sealed class Actions
             foreach (var item in Plan.Remaining.Keys)
             {
                 var inventory = plugin.Storage.Sources.TryGetValue(item, out var source) ? source.GetInventory() : Player.m_localPlayer.GetInventory();
-                bindings[item] = (inventory, inventory.GetAllItems().IndexOf(item));
+                bindings[item] = new ItemCheck(inventory, item, Plan.Remaining[item]);
             }
             if (containers.Length > 255) throw new InvalidOperationException("Too many containers. Reduce the storage radius.");
-            baseline.Clear();
+            inventories.Clear();
             var playerInventory = Player.m_localPlayer.GetInventory();
-            baseline[playerInventory] = new InventoryBaseline(playerInventory, true, "Player inventory");
-            foreach (var c in containers) baseline[c.GetInventory()] = new InventoryBaseline(c.GetInventory(), false, "Container " + Storage.Id(c));
+            inventories.Add(playerInventory);
+            foreach (var c in containers) inventories.Add(c.GetInventory());
             target.Lock();
             if (target.MainButton) target.MainButton.interactable = false;
             deadline = Time.unscaledTime + 5;
+            NeedsNetwork = containers.Any(c => !Storage.View(c)!.IsOwner()) || (target is UpgradeTableUI && !table.GetComponent<ZNetView>().IsOwner());
             if (NeedsNetwork) plugin.Network.Begin(containers, target is UpgradeTableUI, target.GetType().Name);
         }
         catch (Exception e) { plugin.Error(e); Abort(e.Message); }
@@ -98,7 +101,7 @@ internal sealed class Actions
         if (dialog)
         {
             if (!dialog.gameObject.activeSelf) Finish();
-            else if (selected.Any(x => !plugin.Storage.HasLive(x))) Abort("The selected item moved or became protected.");
+            else if (selected.Any(x => !augmentItem.ContainsItem(x) && !plugin.Storage.HasLive(x))) Abort("The selected item moved or became protected.");
             return;
         }
         if (finishing)
@@ -110,7 +113,8 @@ internal sealed class Actions
         if (Time.unscaledTime > deadline) { Abort("Storage request timed out. Nothing was consumed."); return; }
         if (NeedsNetwork && !plugin.Network.Granted) return;
         if (panel is UpgradeTableUI && !table.GetComponent<ZNetView>().IsOwner()) return;
-        if (containers.Any(c => !c || !Storage.View(c) || !Storage.View(c)!.IsOwner())) return;
+        if (containers.Any(c => !c || !Storage.View(c) || !Storage.View(c)!.IsOwner()))
+        { if (!NeedsNetwork) Abort("Storage ownership changed. Please try again."); return; }
         try
         {
             if ((Player.m_localPlayer.transform.position - table.transform.position).sqrMagnitude > 100)
@@ -124,29 +128,9 @@ internal sealed class Actions
             {
                 // Ownership and inventory replication arrive independently. Load the received ZDO before validating it.
                 Storage.Load(c);
-                if (!plugin.Storage.Eligible(c) || !plugin.Network.Fingerprints.TryGetValue(Storage.Id(c), out var expected) || Network.Hash(c.GetInventory()) != expected)
-                {
-                    plugin.Warn("Container " + Storage.Id(c) + ": access or authoritative fingerprint changed. " + baseline[c.GetInventory()].Difference(c.GetInventory()));
-                    Abort("Storage changed while preparing the action. Please try again.");
-                    return;
-                }
+                if (!plugin.Storage.Eligible(c)) { Abort("A required container is no longer available."); return; }
             }
-            foreach (var pair in baseline)
-            {
-                var difference = pair.Value.Difference(pair.Key);
-                if (difference == null) continue;
-                plugin.Warn(difference);
-                Abort("Inventory changed. Please select the action again.");
-                return;
-            }
-            // A network reload can replace ItemData objects without changing any inventory data.
-            // Rebind only after the entire baseline has matched, never by name alone.
-            Item Resolve(Item item)
-            {
-                if (!bindings.TryGetValue(item, out var binding) || binding.Inventory.ContainsItem(item)) return item;
-                if (binding.Inventory == Player.m_localPlayer.GetInventory()) throw new InvalidOperationException("A selected player item was replaced.");
-                return binding.Inventory.GetAllItems()[binding.Index];
-            }
+            Item Resolve(Item item) => bindings.TryGetValue(item, out var check) ? check.Resolve() : item;
             Plan!.Rebind(Resolve);
             for (int i = 0; i < selected.Count; i++) selected[i] = Resolve(selected[i]);
             foreach (var entry in selection.Keys.OfType<InventoryItemListElement>()) entry.Item = Resolve(entry.GetItem());
@@ -165,7 +149,7 @@ internal sealed class Actions
             if (ActionPlan.Settings(panel!) != Plan!.Options || currentCosts.Count != Plan.Costs.Count || currentCosts.Any(x => !Plan.Costs.TryGetValue(x.Key, out int n) || n != x.Value))
             { Abort("The action settings or cost changed. Please select it again."); return; }
             undo.Clear();
-            foreach (var inv in baseline.Keys) undo[inv] = new InventoryUndo(inv);
+            foreach (var inv in inventories) undo[inv] = new InventoryUndo(inv);
             products.Clear();
             Executing = true;
             try
@@ -173,16 +157,23 @@ internal sealed class Actions
                 if (panel is UpgradeTableUI upgrade) Upgrade(upgrade);
                 else method!.Invoke(panel, null);
                 if (Plan!.Payments.Any(x => x.Amount != 0)) throw new InvalidOperationException("The action did not complete its planned payment.");
-                if (!dialog) MoveProcessedItems();
+                if (dialog) TakeAugmentItem();
+                else MoveProcessedItems();
             }
             finally { Executing = false; }
             Persist();
             // All deductions succeeded before anything is given to the player.
             // Once publishing starts, refunding inputs could duplicate already delivered output.
-            undo.Clear(); upgradedFeature = null;
+            undo.Clear(); upgradedFeature = null; augmentPaid = dialog;
             foreach (var give in products) give();
             products.Clear();
             if (!dialog) Finish();
+            else
+            {
+                // Inputs are paid and the selected item is now local. No storage participation while choosing.
+                containers = Array.Empty<Container>(); NeedsNetwork = false; inventories.Clear(); inventories.Add(Player.m_localPlayer.GetInventory());
+                plugin.Network.Release();
+            }
         }
         catch (Exception e)
         {
@@ -221,13 +212,14 @@ internal sealed class Actions
         {
             if (completed) return;
             completed = true;
-            if (!Busy || (NeedsNetwork && !plugin.Network.Granted) || !plugin.Storage.HasLive(target) || Storage.Table != table ||
+            if (!Busy || (NeedsNetwork && !plugin.Network.Granted) || (!augmentItem.ContainsItem(target) && !plugin.Storage.HasLive(target)) || Storage.Table != table ||
                 containers.Any(c => !c || !plugin.Storage.Eligible(c) || !Storage.View(c)!.IsOwner()))
             { Abort("The selected item is no longer available. Augment cancelled."); return; }
             try
             {
                 undo.Clear();
-                foreach (var inv in baseline.Keys) undo[inv] = new InventoryUndo(inv);
+                foreach (var inv in inventories) undo[inv] = new InventoryUndo(inv);
+                undo[augmentItem] = new InventoryUndo(augmentItem);
                 Executing = true;
                 original(target, index, effect);
                 MoveProcessedItems(true);
@@ -238,9 +230,17 @@ internal sealed class Actions
                 products.Clear();
                 Finish();
             }
-            catch (Exception e) { plugin.Error(e); Rollback(); Abort("Augment failed; the action was cancelled."); }
+            catch (Exception e) { Executing = false; plugin.Error(e); Rollback(); Abort("Augment failed; the action was cancelled."); }
             finally { Executing = false; }
         };
+    }
+    private void TakeAugmentItem()
+    {
+        var item = selected.First();
+        var source = containers.FirstOrDefault(c => c.GetInventory().ContainsItem(item));
+        if (!source) return;
+        source.GetInventory().RemoveItem(item);
+        augmentItem.GetAllItems().Add(item);
     }
     private void MoveProcessedItems(bool confirmed = false)
     {
@@ -250,7 +250,7 @@ internal sealed class Actions
             var source = containers.FirstOrDefault(c => c.GetInventory().ContainsItem(item));
             if (!source) continue;
             if (!confirmed && (!undo.TryGetValue(source.GetInventory(), out var saved) || !saved.ItemChanged(item))) continue;
-            if (!plugin.Network.OwnsReservation(Storage.Id(source)) || !Storage.View(source)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed before delivery.");
+            if (!Storage.View(source)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed before delivery.");
             Queue(item);
             source.GetInventory().RemoveItem(item);
         }
@@ -259,7 +259,7 @@ internal sealed class Actions
     {
         foreach (var c in containers)
         {
-            if (!c || !plugin.Network.OwnsReservation(Storage.Id(c)) || !Storage.View(c)!.IsOwner()) throw new InvalidOperationException("Storage ownership was lost before saving.");
+            if (!c || !Storage.View(c)!.IsOwner()) throw new InvalidOperationException("Storage ownership was lost before saving.");
             Storage.Save(c);
         }
         plugin.Storage.Invalidate();
@@ -279,12 +279,20 @@ internal sealed class Actions
         foreach (var c in containers) if (c && Storage.View(c)!.IsOwner()) Storage.Save(c);
         undo.Clear(); products.Clear(); plugin.Storage.Invalidate();
     }
-    private void Finish() { undo.Clear(); products.Clear(); dialog = null; finishing = true; settleFrames = 2; }
+    private void DeliverAugment()
+    {
+        if (!augmentPaid) return;
+        augmentPaid = false;
+        foreach (var item in augmentItem.GetAllItems().ToArray()) InventoryManagement.Instance.GiveItem(item.Clone());
+        augmentItem.GetAllItems().Clear();
+    }
+    private void Finish() { DeliverAugment(); undo.Clear(); products.Clear(); dialog = null; finishing = true; settleFrames = 2; }
     private void Release()
     {
         var old = panel;
         panel = null; table = null; method = null; dialog = null; finishing = false;
-        containers = Array.Empty<Container>(); Plan = null; bindings.Clear(); baseline.Clear(); undo.Clear(); selected.Clear(); selection.Clear(); products.Clear(); upgradedFeature = null;
+        containers = Array.Empty<Container>(); NeedsNetwork = false; Plan = null; bindings.Clear(); inventories.Clear(); undo.Clear(); selected.Clear(); selection.Clear(); products.Clear(); upgradedFeature = null;
+        augmentItem.GetAllItems().Clear(); augmentPaid = false;
         plugin.Network.Release(); plugin.Storage.Invalidate();
         // EpicLoot retains its own success/choice dialog locking state.
         if (old && !old.CanCancel()) old.Unlock();
@@ -295,6 +303,7 @@ internal sealed class Actions
         {
             dialog.gameObject.SetActive(false);
         }
+        DeliverAugment();
         var old = panel;
         Release();
         if (old) { old.Cancel(); old.DeselectAll(); old.Unlock(); }

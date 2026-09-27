@@ -7,7 +7,7 @@ Use materials and equipment from nearby storage at EpicLoot's enchanting table.
 - Identify, enchant, augment, sacrifice, disenchant, work with runes, convert materials, and upgrade the table using nearby storage.
 - Equipped items and items in **your hotbar slots 1–8** are protected from selection, modification, and consumption. Move an item into your backpack to use it at the table.
 - Container discovery and material totals are cached, avoiding repeated scene searches for every recipe.
-- Server-coordinated reservations prevent this mod's users from spending the same shared storage simultaneously.
+- Checks the required items again when you perform an action; nearby chests remain usable.
 - Accesses chests and drawers through the standard container inventory interface, with **no dependency on RossItemDrawers or other crafting mods**.
 
 ## Install
@@ -32,7 +32,7 @@ Diagnostics = false
 
 Range is measured in metres **from the table**, including height. The server controls it; accepted values are 1–100. Storage must also be loaded, accessible, and not in use. Graves are excluded.
 
-Unprotected carried materials are spent first. New products and equipment processed from storage are delivered to you. Items that do not fit are dropped beside you. Only containers contributing to an action are reserved; actions using only your inventory do not reserve nearby storage. A chest's top row is usable—the hotbar rule only applies to your inventory. Augment retains EpicLoot's normal payment when choices are generated; closing the choice dialog does not refund a roll.
+Unprotected carried materials are spent first. New products and equipment processed from storage are delivered to you. Items that do not fit are dropped beside you. Only the storage supplying inputs participates in an action. Actions using your own items do not wait for nearby storage. A chest's top row is usable—the hotbar rule only applies to your inventory. Augment retains EpicLoot's normal payment when choices are generated; closing the choice dialog does not refund a roll.
 
 For Identify, put the required iron or other materials in a chest/drawer within range. If they are not shown, check distance, permissions, and whether another player is using the container. Enable diagnostics for cache timings in the BepInEx log.
 
@@ -46,6 +46,6 @@ dotnet test tests/Core.Tests/Core.Tests.csproj -c Release
 powershell -ExecutionPolicy Bypass -File scripts/Build-Package.ps1
 ```
 
-The package is written to `artifacts/EpicLootContainerAccess-0.1.2.zip`. Build scripts never install into a profile or deploy to a server.
+The package is written to `artifacts/EpicLootContainerAccess-0.1.3.zip`. Build scripts never install into a profile or deploy to a server.
 
 [Source and issues](https://github.com/NorskIT/EpicLoot-Container-Access)

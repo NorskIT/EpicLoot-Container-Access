@@ -20,33 +20,6 @@ internal static class UntrackContainer
 {
     private static void Prefix(Container __instance) => Plugin.Instance?.Storage?.Remove(__instance);
 }
-[HarmonyPatch]
-internal static class ProtectOpening
-{
-    private static IEnumerable<MethodBase> TargetMethods()
-    {
-        yield return AccessTools.Method(typeof(Container), "Interact");
-        yield return AccessTools.Method(typeof(Container), "TakeAll");
-    }
-    private static bool Prefix(Container __instance, ref bool __result)
-    {
-        if (!Plugin.Instance.Ready || !Plugin.Instance.Network.AnyReservation(Storage.Id(__instance))) return true;
-        __result = false; Plugin.Instance.Notice("Storage is being used by the enchanting table."); return false;
-    }
-}
-[HarmonyPatch]
-internal static class ProtectRemoteOpening
-{
-    private static IEnumerable<MethodBase> TargetMethods()
-    {
-        foreach (string name in new[] { "RPC_RequestOpen", "RPC_RequestTakeAll", "RPC_RequestStack" })
-        {
-            var method = AccessTools.Method(typeof(Container), name);
-            if (method != null) yield return method;
-        }
-    }
-    private static bool Prefix(Container __instance) => !Plugin.Instance.Ready || !Plugin.Instance.Network.AnyReservation(Storage.Id(__instance));
-}
 [HarmonyPatch(typeof(InventoryManagement), nameof(InventoryManagement.GetAllItems))]
 internal static class FilterItems
 {

@@ -55,7 +55,7 @@ internal sealed class Storage : IDisposable
         bool local = Player.m_localPlayer && Player.m_localPlayer.GetInventory().ContainsItem(item);
         return Rules.Protected(item.m_equipped, local, item.m_gridPos.x, item.m_gridPos.y);
     }
-    internal bool Eligible(Container c, bool allowOwnReservation = false)
+    internal bool Eligible(Container c)
     {
         var current = Table;
         if (!current || !Player.m_localPlayer || !c || !c.gameObject.activeInHierarchy || c.GetComponent<TombStone>()) return false;
@@ -63,7 +63,6 @@ internal sealed class Storage : IDisposable
         if (!view || !view.IsValid() || c.GetInventory() == null) return false;
         if (!Rules.InRange((c.transform.position - current.transform.position).sqrMagnitude, plugin.Network.Range)) return false;
         if (c.IsInUse() || view.GetZDO().GetInt(ZDOVars.s_inUse) != 0 || (c.m_wagon && c.m_wagon.InUse())) return false;
-        if (plugin.Network.ReservedByOther(Id(c))) return false;
         return Access(c, Player.m_localPlayer.GetPlayerID());
     }
     internal static bool Access(Container c, long playerId)
@@ -136,7 +135,7 @@ internal sealed class Storage : IDisposable
     internal int Remove(string name, int amount) => Withdraw(name, amount, false);
     internal int Withdraw(string name, int amount, bool includePlayer)
     {
-        if (!plugin.Actions.Executing) throw new InvalidOperationException("Storage withdrawals require a coordinated table action.");
+        if (!plugin.Actions.Executing) throw new InvalidOperationException("Storage withdrawals require a table action.");
         if (plugin.Actions.Plan == null) throw new InvalidOperationException("No active withdrawal plan.");
         plugin.Actions.Plan.Withdraw(this, name, amount);
         return amount;
@@ -150,7 +149,7 @@ internal sealed class Storage : IDisposable
         else
         {
             var c = Sources[item];
-            if (!plugin.Network.OwnsReservation(Id(c)) || !View(c)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed.");
+            if (!View(c)!.IsOwner()) throw new InvalidOperationException("Storage ownership changed.");
             inventory = c.GetInventory();
         }
         plugin.Actions.Plan!.Consume(item, amount);

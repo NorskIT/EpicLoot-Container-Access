@@ -74,7 +74,7 @@ public sealed class SmokePlugin : BaseUnityPlugin
             CheckActionPlans(iron, swordPrefab);
             var packet = new ZPackage(); packet.Write("request"); packet.Write(new ZDOID(45, 90)); packet.SetPos(0);
             if (packet.ReadString() != "request" || packet.ReadZDOID() != new ZDOID(45, 90)) throw new Exception("Local RPC package roundtrip failed.");
-            File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS\nPlugin loaded; inventory/sacrifice providers registered; 7 action panels guarded; " + patched.Length + " Harmony targets patched; inventory snapshots stable; 10,000-item withdrawal correct; equipped/chest-row protections correct; undo preserves item identity, oversized stacks and cached magic data; RPC package roundtrip correct; action planning, source isolation, withdrawal budgets, EpicLoot cost API and processed-item detection checks passed; 10 inventory baseline regression checks passed (old false rejection reproduced, protected changes accepted, material/protection/container changes rejected).\n" + drawers + "\nNo world or server was opened.\n");
+            File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS\nPlugin loaded; inventory/sacrifice providers registered; 7 action panels guarded; " + patched.Length + " Harmony targets patched; inventory snapshots stable; 10,000-item withdrawal correct; equipped/chest-row protections correct; undo preserves item identity, oversized stacks and cached magic data; RPC package roundtrip correct; action planning, source isolation, withdrawal budgets, EpicLoot cost API and processed-item detection checks passed; 7 input-recheck and no-chest-lock checks passed.\n" + drawers + "\nNo world or server was opened.\n");
         }
         catch (Exception e) { File.WriteAllText(Path.Combine(directory, "result.txt"), "FAIL\n" + e); Logger.LogError(e); }
         Application.Quit();
@@ -82,45 +82,29 @@ public sealed class SmokePlugin : BaseUnityPlugin
 
     private static void CheckBaselines(GameObject iron, GameObject swordPrefab)
     {
-        var type = typeof(Plugin).Assembly.GetType("EpicLootContainerAccess.InventoryBaseline")!;
-        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        var inv = new Inventory("Validation regression", null, 8, 4);
-        ItemDrop.ItemData Add(GameObject prefab, int x, int y, bool equipped = false)
-        {
-            var item = prefab.GetComponent<ItemDrop>().m_itemData.Clone();
-            item.m_dropPrefab = prefab; item.m_gridPos = new Vector2i(x, y); item.m_equipped = equipped;
-            inv.GetAllItems().Add(item); return item;
-        }
-        object Capture(bool player = true) => Activator.CreateInstance(type, flags, null, new object[] { inv, player, player ? "Player inventory" : "Container test" }, null)!;
-        string? Diff(object snapshot) => (string?)type.GetMethod("Difference", flags)!.Invoke(snapshot, new object[] { inv });
-        void Check(bool condition, string name) { if (!condition) throw new Exception("Baseline regression: " + name); }
-        var material = Add(iron, 0, 1); material.m_stack = 20;
-        var equipped = Add(swordPrefab, 1, 1, true);
-        var hotbar = Add(swordPrefab, 0, 0);
-        var snapshot = Capture();
-        var old = new ZPackage(); inv.Save(old);
-        equipped.m_durability -= 1; hotbar.m_durability -= 1;
-        equipped.m_customData["eca-passive"] = "changed";
-        var changed = new ZPackage(); inv.Save(changed);
-        Check(!old.GetArray().SequenceEqual(changed.GetArray()), "old full-inventory check reproduces false rejection");
-        Check(Diff(snapshot) == null, "protected durability/custom data must not reject");
-        material.m_stack--;
-        Check(Diff(snapshot)?.Contains("stack") == true, "material count must reject"); material.m_stack++;
-        material.m_gridPos = new Vector2i(2, 0);
-        Check(Diff(snapshot) != null, "move material to hotbar must reject"); material.m_gridPos = new Vector2i(0, 1);
-        material.m_equipped = true;
-        Check(Diff(snapshot) != null, "equip available item must reject"); material.m_equipped = false;
-        inv.GetAllItems().Remove(material);
-        Check(Diff(snapshot) != null, "removed material must reject"); inv.GetAllItems().Insert(0, material);
-        material.m_customData["eca-change"] = "value";
-        Check(Diff(snapshot)?.Contains("custom data") == true, "available item metadata must reject"); material.m_customData.Remove("eca-change");
-        material.m_durability -= 1;
-        Check(Diff(snapshot)?.Contains("durability") == true, "available item durability must reject");
-        var container = Capture(false);
-        hotbar.m_stack++;
-        Check(Diff(container)?.Contains("Container test") == true, "container top row must remain validated");
-        container = Capture(false); equipped.m_durability -= 1;
-        Check(Diff(container) != null, "container equipped items must remain validated");
+        void Check(bool ok, string message) { if (!ok) throw new Exception("Input recheck: " + message); }
+        var inventory = new Inventory("input recheck", null, 8, 4);
+        var item = iron.GetComponent<ItemDrop>().m_itemData.Clone(); item.m_dropPrefab = iron;
+        item.m_stack = 20; item.m_gridPos = new Vector2i(0, 1); inventory.GetAllItems().Add(item);
+        var input = new ItemCheck(inventory, item, 5);
+        var other = swordPrefab.GetComponent<ItemDrop>().m_itemData.Clone(); other.m_dropPrefab = swordPrefab;
+        inventory.GetAllItems().Add(other); other.m_durability -= 1;
+        Check(input.Resolve() == item, "unrelated changes cannot block an action");
+        item.m_stack = 6; Check(input.Resolve() == item, "remaining quantity is sufficient");
+        item.m_stack = 4; bool rejected = false;
+        try { input.Resolve(); } catch (InvalidOperationException) { rejected = true; }
+        Check(rejected, "insufficient quantity must fail");
+        item.m_stack = 20; item.m_customData["test"] = "changed"; rejected = false;
+        try { input.Resolve(); } catch (InvalidOperationException) { rejected = true; }
+        Check(rejected, "changed item metadata must fail"); item.m_customData.Remove("test");
+        var loaded = item.Clone(); inventory.GetAllItems().Remove(item); inventory.GetAllItems().Add(loaded);
+        Check(input.Resolve() == loaded, "unchanged network-reloaded item must resolve");
+        inventory.GetAllItems().Remove(loaded); rejected = false;
+        try { input.Resolve(); } catch (InvalidOperationException) { rejected = true; }
+        Check(rejected, "removed item must fail");
+        Check(!Harmony.GetAllPatchedMethods().Any(m => m.DeclaringType == typeof(Container) &&
+            new[] { "Interact", "TakeAll", "RPC_RequestOpen", "RPC_RequestTakeAll", "RPC_RequestStack" }.Contains(m.Name) &&
+            Harmony.GetPatchInfo(m).Owners.Contains(Plugin.Id)), "ECA must not lock chest opening");
     }
 
     private static void CheckActionPlans(GameObject iron, GameObject swordPrefab)
