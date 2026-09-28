@@ -72,9 +72,10 @@ public sealed class SmokePlugin : BaseUnityPlugin
             if (EpicLoot.API.GetMagicItemJson(sword) != magic) throw new Exception("Undo did not restore cached enchantment data.");
             CheckBaselines(iron, swordPrefab);
             CheckActionPlans(iron, swordPrefab);
+            ConversionRegression.Run(iron);
             var packet = new ZPackage(); packet.Write("request"); packet.Write(new ZDOID(45, 90)); packet.SetPos(0);
             if (packet.ReadString() != "request" || packet.ReadZDOID() != new ZDOID(45, 90)) throw new Exception("Local RPC package roundtrip failed.");
-            File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS\nPlugin loaded; inventory/sacrifice providers registered; 7 action panels guarded; " + patched.Length + " Harmony targets patched; inventory snapshots stable; 10,000-item withdrawal correct; equipped/chest-row protections correct; undo preserves item identity, oversized stacks and cached magic data; RPC package roundtrip correct; action planning, source isolation, withdrawal budgets, EpicLoot cost API and processed-item detection checks passed; 7 input-recheck and no-chest-lock checks passed.\n" + drawers + "\nNo world or server was opened.\n");
+            File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS\nPlugin loaded; inventory/sacrifice providers registered; 7 action panels guarded; " + patched.Length + " Harmony targets patched; inventory snapshots stable; 10,000-item withdrawal correct; equipped/chest-row protections correct; undo preserves item identity, oversized stacks and cached magic data; RPC package roundtrip correct; action planning, source isolation, withdrawal budgets, EpicLoot cost API and processed-item detection checks passed; 7 input-recheck and no-chest-lock checks passed; conversion UI regression cases passed (single/multiple recipes, quantities, products, empty/invalid selection, inventory and upgrade branches).\n" + drawers + "\nNo world or server was opened.\n");
         }
         catch (Exception e) { File.WriteAllText(Path.Combine(directory, "result.txt"), "FAIL\n" + e); Logger.LogError(e); }
         Application.Quit();

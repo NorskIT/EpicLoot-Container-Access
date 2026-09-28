@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Fix Convert Materials failing with "Specified cast is not valid" when selecting a recipe.
+- Read recipe and inventory selections only in their respective action branches.
+- Reject empty or invalid selections before payment with a clear message.
+
 ## 0.1.3
 
 - Remove storage reservations, lease renewal and chest-opening locks.

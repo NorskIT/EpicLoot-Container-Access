@@ -30,37 +30,52 @@ internal sealed class ActionPlan
         return string.Join("/", fields.Select(x => Field(panel, x).ToString())) +
             (panel is SacrificeUI s ? "/" + s.IdentifyStyle.value : "");
     }
+    internal static List<Tuple<T, int>> ReadSelection<T>(EnchantingTableUIPanelBase panel) where T : class, IListElement
+    {
+        var selected = panel.AvailableItems ? panel.AvailableItems.GetSelectedItems<IListElement>() : null;
+        if (selected == null || selected.Count == 0) throw new InvalidOperationException("Select an item or recipe first.");
+        if (selected.Any(x => !(x.Item1 is T) || x.Item1.GetItem() == null || x.Item2 <= 0))
+            throw new InvalidOperationException("The selection is not valid for this action. Please select it again.");
+        return selected.Select(x => Tuple.Create((T)x.Item1, x.Item2)).ToList();
+    }
     internal static Dictionary<string, int> CalculateCosts(EnchantingTableUIPanelBase panel)
     {
         var table = (EnchantingTable)Storage.Table!;
-        var item = panel.AvailableItems ? panel.AvailableItems.GetSelectedItems<InventoryItemListElement>().FirstOrDefault()?.Item1.GetItem() : null;
+        Item RequiredItem()
+        {
+            var selected = ReadSelection<InventoryItemListElement>(panel);
+            if (selected.Count != 1) throw new InvalidOperationException("Select one item for this action.");
+            return selected[0].Item1.GetItem();
+        }
         List<InventoryItemListElement> cost;
-        if (panel is ConvertUI convert) cost = ConvertUI.GetConversionCost(convert.AvailableItems.GetSelectedItems<ConversionRecipeUnity>());
+        if (panel is ConvertUI convert) cost = ConvertUI.GetConversionCost(ReadSelection<ConversionRecipeUnity>(convert));
         else if (panel is UpgradeTableUI)
         {
-            var feature = (EnchantingFeature)(int)Field(panel, "_selectedFeature");
+            int index = (int)Field(panel, "_selectedFeature");
+            if (index < 0 || !table) throw new InvalidOperationException("Select a table feature first.");
+            var feature = (EnchantingFeature)index;
             cost = table.IsFeatureLocked(feature) ? table.GetFeatureUnlockCost(feature) : table.GetFeatureUpgradeCost(feature);
         }
-        else if (panel is EnchantUI) cost = Cost("GetEnchantCost", item!, Field(panel, "_rarity"));
-        else if (panel is AugmentUI) cost = Cost("GetAugmentCost", item!, Field(panel, "_augmentIndex"));
-        else if (panel is DisenchantUI) cost = Cost("GetDisenchantCost", item!);
+        else if (panel is EnchantUI) cost = Cost("GetEnchantCost", RequiredItem(), Field(panel, "_rarity"));
+        else if (panel is AugmentUI) cost = Cost("GetAugmentCost", RequiredItem(), Field(panel, "_augmentIndex"));
+        else if (panel is DisenchantUI) cost = Cost("GetDisenchantCost", RequiredItem());
         else if (panel is SacrificeUI sacrifice && Field(panel, "_sacrificeMode").ToString() == "Identify")
         {
             float value = table.GetFeatureCurrentValue(EnchantingFeature.Sacrifice).Item1;
             float reduction = float.IsNaN(value) || value == 0 ? 1 : 1 - value / 100;
             cost = Cost("GetIdentifyCostForCategory", sacrifice.IdentifyStyle.options[sacrifice.IdentifyStyle.value].text,
-                sacrifice.AvailableItems.GetSelectedItems<IListElement>().Select(x => Tuple.Create(x.Item1.GetItem(), x.Item2)).ToList(), reduction);
+                ReadSelection<InventoryItemListElement>(sacrifice).Select(x => Tuple.Create(x.Item1.GetItem(), x.Item2)).ToList(), reduction);
         }
-        else if (panel is SacrificeUI) cost = new List<InventoryItemListElement>();
+        else if (panel is SacrificeUI) { ReadSelection<InventoryItemListElement>(panel); cost = new List<InventoryItemListElement>(); }
         else if (panel is RuneUI)
         {
             float value = table.GetFeatureCurrentValue(EnchantingFeature.Rune).Item1;
             float reduction = float.IsNaN(value) || value == 0 ? 1 : 1 - value / 100;
-            cost = Cost(Field(panel, "_runeAction").ToString() == "Etch" ? "GetRuneEtchCost" : "GetRuneExtractCost", item!, Field(panel, "_selectedRarity"), reduction);
+            cost = Cost(Field(panel, "_runeAction").ToString() == "Etch" ? "GetRuneEtchCost" : "GetRuneExtractCost", RequiredItem(), Field(panel, "_selectedRarity"), reduction);
         }
         else throw new InvalidOperationException("Unsupported enchanting action: " + panel.GetType().Name);
         // Disenchant pays even with EpicLoot's no-cost cheat enabled.
-        if (Player.m_localPlayer.NoCostCheat() && !(panel is DisenchantUI)) return new Dictionary<string, int>();
+        if (Player.m_localPlayer && Player.m_localPlayer.NoCostCheat() && !(panel is DisenchantUI)) return new Dictionary<string, int>();
         return cost.GroupBy(x => x.GetItem().m_shared.m_name).ToDictionary(x => x.Key, x => x.Sum(y => y.GetItem().m_stack));
     }
     internal ActionPlan(Plugin plugin, EnchantingTableUIPanelBase panel, IEnumerable<(Item Item, int Amount)> selected)
